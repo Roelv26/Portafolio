@@ -1,0 +1,330 @@
+---
+title: "Inteligencia artificial avanzada para la ciencia de datos II(Módulo 5: Estadística Avanzada para ciencia de datos)"
+author: "Roel De la Rosa - A01197595"
+date: "13/9/2022"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE)
+```
+
+Durante este reporte lo que se busca es analizar un conjunto de datos que contienen información sobre los niveles de contaminación que se encuentran en peces en distintos lagos. Se busca encontrar y justificar relaciones entre las distintas variables para poder encontrar, en este caso, cuales son las variables que más afectan el nivel de contaminación de mercurio en la carne de los peces. Para hacerlo se utilizaron métodos estadisticos tales como las pruebas de normalidad de Mardia y de Anderson-Darling, para saber el comportamiento de las variables, además de análisis de correlación y de componentes principales para entender mejor las relaciones entre las variables. Se concluyo que la Alcalinidad, el PH, el Calcio y la Clorofila son los factores más relevantes.
+
+
+Algunas de las preguntas que se quieren responder son las siguientes: 
+¿Cómo se distribuyen las variables que se analizaran?
+¿Hay relaciones entre las distintas variables?
+¿Es necesario escalar los datos para obtener mejores análisis?
+
+Considero que este tipo de estudios son necesarios, pues por ejemplo, el mercurio es uno de los metales más tóxicos con los que una persona puede ingerir. Es necesario que se hagan estudios para entender como es que ciertas variables pueden afectar el nivel de contaminación de mercurio en los animales que más se consumen para evitar que alguien consuma material contaminado y termine con efectos adversos a su salud.
+
+
+```{r message=FALSE, warning=FALSE}
+library(ggplot2, quietly = TRUE)
+library(reshape2, quietly = TRUE)
+library(psych, quietly = TRUE)
+library(Hmisc, quietly = TRUE)
+library(clusterSim, quietly = TRUE)
+library(factoextra, quietly = TRUE)
+library(mvnormalTest, quietly = TRUE)
+library(nortest, quietly = TRUE)
+library(MVN, quietly = TRUE)
+library(RVAideMemoire, quietly = TRUE)
+```
+## Leemos los datos
+
+```{r}
+df = read.csv('mercurio.csv')
+head(df)
+```
+
+```{r}
+str(df)
+```
+## Transformación de los datos
+
+Renombro las variables para poderlas interpretar de mejor manera.
+
+X1 = número de indentificación
+X2 = nombre del lago
+X3 = alcalinidad (mg/l de carbonato de calcio)
+X4 = PH
+X5 = calcio (mg/l)
+X6 = clorofila (mg/l)
+X7 = concentración media de mercurio (parte por millón) en el tejido muscualar del grupo de peces estudiados en cada lago
+X8 = número de peces estudiados en el lago
+X9 = mínimo de la concentración de mercurio en cada grupo de peces
+X10 = máximo de la concentración de mercurio en cada grupo de peces
+X11 = estimación (mediante regresión) de la concentración de mercurio en el pez de 3 años (o promedio de mercurio cuando la edad no está disponible)
+X12 = indicador de la edad de los peces (0: jóvenes; 1: maduros)
+
+```{r}
+df <- subset(df, select = -X1)
+names(df)[names(df) == 'X2'] <- 'Lago'
+names(df)[names(df) == 'X3'] <- 'Alcalinidad'
+names(df)[names(df) == 'X4'] <- 'PH'
+names(df)[names(df) == 'X5'] <- 'Calcio'
+names(df)[names(df) == 'X6'] <- 'Clorofila'
+names(df)[names(df) == 'X7'] <- 'Con_Merc'
+names(df)[names(df) == 'X8'] <- 'Peces_est'
+names(df)[names(df) == 'X9'] <- 'Min_merc'
+names(df)[names(df) == 'X10'] <- 'Max_merc'
+names(df)[names(df) == 'X11'] <- 'Est_conc'
+names(df)[names(df) == 'X12'] <- 'Edad_peces'
+head(df)
+```
+
+```{r}
+unique(df$Lago)
+nrow(df)
+```
+Hay 53 registros y se tienen 53 diferentes lagos, por lo que sabemos que esta columna realmente no nos aporta mucho.
+
+
+```{r}
+df <- subset(df, select = -Lago)
+```
+
+
+## Distribución de la concentración de mercurio
+
+```{r}
+hist(df$Con_Merc, breaks = 15)
+abline(v = median(df$Con_Merc), col = "red")
+abline(v = mean(df$Con_Merc), col = "blue")
+
+med = round(median(df$Con_Merc),3)
+mea = round(mean(df$Con_Merc),3)
+
+text(x = mea,
+     y = mea,
+     paste("Mean =", mea),
+     col = "blue",
+     cex = 1)
+
+
+text(x = med,
+     y = med*10,
+     paste("Median =", med),
+     col = "red",
+     cex = 1)
+
+
+```
+
+Se puede observar que hay bastantes casos en los que la concentración de mercurio por kg de pez es mayor a 0.5, lo cual incumple el Reglamento 34687-MAG y los reglamentos internacionales CE 1881/2006 y Codex Standard 193-1995.
+
+De hecho, la mediana es 0.48 y la moda es de 0.527. Esto se encuentra incluso ya pasando los límites de lo establecido.
+
+
+
+```{r}
+boxplot(df$Con_Merc)
+abline(h = med, col = 'red')
+abline(h = mea, col = 'blue')
+```
+# Normalidad Multivariada
+##Prueba de Normalidad de Mardia
+```{r}
+mardia(df, std = TRUE)
+```
+
+Se puede observar que tras este test de Normalidad de Mardia, la única variable que parece que se comporta con normalidad es el PH, pues tiene un p-value mayor a 0.05. Aunque el máximo de mercurio y la concentración de mercurio podrían ser considerados normales si el criterio del p-value fuera ser mayor a 0.01
+
+##Prueba de Anderson-Darling
+```{r}
+mvn(data <- df, univariateTest = 'AD', desc = TRUE)$univariateNormality
+```
+Aquí podemos observar que en tras la prueba de Anderson Darling, las únicas variables que parece que muestran normalidad son el Ph(el cual vimos en la prueba de Mardia) y el máximo de mercurio.
+
+```{r, echo=FALSE} 
+mardia(df, std = TRUE)$mv.test
+```
+
+A partir de la prueba de Mardia, podemos saber que no se tiene normalidad multivariada pues los p-values del sesgo y de la kurtosis son ambos prácticamente 0.
+
+
+```{r}
+normal <- df[c("PH","Max_merc")]
+result <- mvn(normal, mvnTest = 'mardia', multivariatePlot = 'persp')
+result
+```
+
+```{r}
+result <- mvn(normal, mvnTest = 'mardia', multivariatePlot = 'contour')
+result
+```
+
+## Outliers
+
+```{r}
+mqqnorm(normal, main = 'Multi-normal QQ Plot')
+```
+
+## Análisis de Correlación 
+Para conocer los factores que más pueden influir hacemos un análisis de la correlación entre las variables a examinar.
+
+### Matriz de Correlación
+
+En la siguiente figura se puede observar una matriz de correlación entre las variables. Se puede observar que, para la concentración de mercurio, se tiene una correlación negativa con la Clorofila, el Calcio, el PH y la Alcalinidad.
+
+```{r}
+cormat <- round(cor(df),2)
+melted_cormat = melt(cormat)
+ggplot(data = melted_cormat, aes(x=Var1, y=Var2, fill=value)) + 
+  geom_tile(color = "white") +
+geom_text(aes(Var2, Var1, label = value),
+          color = "black", size = 4) +
+  scale_fill_gradient(high = munsell::mnsl("5P 2/12"), 
+  low = munsell::mnsl("5P 7/12"))
+```
+```{r}
+cor.test.p <- function(x){
+    FUN <- function(x, y) cor.test(x, y)[["p.value"]]
+    z <- outer(
+      colnames(x), 
+      colnames(x), 
+      Vectorize(function(i,j) FUN(x[,i], x[,j]))
+    )
+    dimnames(z) <- list(colnames(x), colnames(x))
+    z
+}
+
+corprob = round(cor.test.p(df),2)
+
+melted_prob = melt(corprob)
+ggplot(data = melted_prob, aes(x=Var1, y=Var2, fill=value)) + 
+  geom_tile(color = "white") +
+geom_text(aes(Var2, Var1, label = value),
+          color = "black", size = 4) +
+  scale_fill_gradient(high = munsell::mnsl("5P 2/12"), 
+  low = munsell::mnsl("5P 7/12"))
+```
+A partir de lo anterior se puede observar en el primer heatmap como es que las variables tienen correlación entre sí. Para poder entender mejor la relación entre las variables se han calulado los p-values entre las correlaciones de todas las variables en el segundo heatmap. Después se han usado pruebas de hipótesis para ver si las variables tienen independencia o asociación entre sí.
+
+$H_0: \rho = 0$ El caso de independencia entre variables
+$H_1: \rho \neq 0$ El caso de asociación entre variables
+
+Regla de decisión: Rechazar $H_0$ si el p-value $< 0.05$.
+
+Dado que queremos ver que variables afectan a la concentración de mercurio, podemos observar que Alcalinidad, PH, Calcio, Clorofila, el mínimo de mercurio, el máximo de mercurio y la estimación de mercurio tienen un p-value menor a 0.05, por lo que se rechaza $H_0$ y se llega a la conclusión que estas variables son las que pueden afectar a la concentración de mercurio.
+
+
+## Análisis de Componentes Principales
+
+Antes de hacer el PCA debemos de saber si es necesario escalar los datos. Para poder saber esto primero vamos a ver las distribuciones de las variables.
+
+```{r}
+hist.data.frame(df, nclass = 10)
+```
+
+Podemos observar que algunas variables que tienen valores pequeños, mientras que algunas otras tienen valores relativamente mucho más grandes, por ello vamos a buscar normalizar los datos para que cuando se realize el PCA no se tenga algún sesgo hacia las variables con valores más altos.
+
+```{r}
+normdf = data.Normalization(df,type="n4");
+```
+```{r}
+hist.data.frame(normdf, nclass = 10)
+```
+
+Ya que tenemos los datos normalizados, podemos aplicar el PCA para ver cuantos componentes principales representan la mayoría de la variabilidad de los datos y que variables son las que tienen mayor relevancia en esos componentes.
+
+
+```{r}
+pcanorm <-prcomp(normdf)
+```
+
+```{r}
+fviz_eig(pcanorm)
+```
+
+```{r}
+variancenorm = pcanorm$sdev^2 / sum(pcanorm$sdev^2)
+
+plot(cumsum(variancenorm), xlab = "Principal Component",
+             ylab = "Percentage of Variance Explained",
+             type = "b")
+```
+
+
+Cómo se puede observar con 4 componentes principales se tiene cerca del 90% de la variabilidad de los datos. Ahora solo falta observar esos componentes principales.
+
+
+```{r}
+pcanorm
+```
+
+```{r}
+fviz_pca_var(pcanorm,
+             col.var = "contrib", # Color by contributions to the PC
+             gradient.cols = c("#00AFBB", "#E7B800", "#FC4E07"),
+             repel = TRUE     # Avoid text overlapping
+             )
+```
+
+
+Cómo se puede observar en la tabla anterior, 
+
+El primer componente principal se ve afectado en su mayoria por Alcalinidad, PH, Calcio, Clorofila, la concentración de mercurio, el minimo de mercurio, el máximo de mercurio y la estimación de la concentración
+
+El segundo componente principal se ve afectado principalmente por la variable que dice si un pez es joven o adulto
+
+El tercer componente principal tiene mayor relación con Alcalinidad, Calcio, Concentración de mercurio, el minimo de mercurio, el máximo de mercurio y la estimación de la concentración
+
+El cuarto componente principal se ve afectado en su mayoría por la cantidad de peces estudiados.
+
+Esto es algo que se puede ver gráficamente en el loading plot anterior. Se puede ver como es que esas variables se van agrupando.
+
+
+### Por su parte, haré el mismo análisis pero esta vez sin la normalización de los datos. Esto con objetivo de ver si se tienen resultados similares.
+
+
+Ya que tenemos los datos normalizados, podemos aplicar el PCA para ver cuantos componentes principales representan la mayoría de la variabilidad de los datos y que variables son las que tienen mayor relevancia en esos componentes.
+
+
+```{r}
+pca <-prcomp(df)
+```
+
+```{r}
+fviz_eig(pca)
+```
+
+```{r}
+variance = pca$sdev^2 / sum(pca$sdev^2)
+
+plot(cumsum(variance), xlab = "Principal Component",
+             ylab = "Percentage of Variance Explained",
+             type = "b")
+```
+
+
+Cómo se puede observar con 4 componentes principales se tiene cerca del 90% de la variabilidad de los datos. Ahora solo falta observar esos componentes principales.
+
+
+```{r}
+pca
+```
+
+```{r}
+fviz_pca_var(pca,
+             col.var = "contrib", # Color by contributions to the PC
+             gradient.cols = c("#00AFBB", "#E7B800", "#FC4E07"),
+             repel = TRUE     # Avoid text overlapping
+             )
+```
+
+Como se puede observar en las gráficas y tabla anteriores, parece que el pca si se ve muy sesgado por las variables que tienen mayores rangos, por lo que la normalizaión que realizamos fue un acierto.
+
+## Conclusiones
+
+A partir del análisis de las correlaciones entre las variables y su significancia, además del análisis de componentes principales con los datos normalizados, se llega a la conclusión que los principales factores que influyen en el nivel de contaminación por mercurio en los peces de lagos de Florida son:
+
+Alcalinidad, PH, Calcio, Clorofila, el mínimo de mercurio, el máximo de mercurio y la estimación de mercurio.
+
+Algo que se debe de tomar en consideración es que el minimo de mercurio, el máximo de mercurio y la estimación de mercurio, por la forma en la que fueron obtenidas y calculadas, tienen bastante relación con la concentración de mercurio, por lo que considero que la Alcalinidad, el PH, el Calcio y la Clorofila son los factores más relevantes.
+
+### Referencias
+
+Servicio Nacional de Salud Animal (SENASA) del Ministerio de Agricultura y Ganadería. (2008). RTCR 409: 2008 Reglamento de Límites Máximos  Microbiológicos y de Residuos de Medicamentos  y Contaminantes para los Productos y Subproductos  de la Pesca y de la Acuicultura Destinados  al Consumo Humano. Nº 34687-mag. Retrieved September 17, 2022, from http://www.pgrweb.go.cr/DOCS/NORMAS/1/VIGENTE/D/2000-2009/2005-2009/2008/F916/BE0D7.HTML 
